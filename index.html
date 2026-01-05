@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Color Filter Camera</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .video-container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 50px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .color-picker-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #colorPicker {
+            width: 50px;
+            height: 50px;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            background: transparent;
+            padding: 0;
+        }
+
+        #colorPicker::-webkit-color-swatch {
+            border: 3px solid white;
+            border-radius: 50%;
+        }
+
+        #colorPicker::-moz-color-swatch {
+            border: 3px solid white;
+            border-radius: 50%;
+        }
+
+        .reset-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .reset-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .start-camera {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .start-camera:hover {
+            background: #0056b3;
+        }
+
+        .error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 80%;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 768px) {
+            .controls {
+                bottom: 10px;
+                padding: 10px 15px;
+            }
+
+            #colorPicker {
+                width: 45px;
+                height: 45px;
+            }
+
+            .reset-btn {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+        }
+
+        /* Landscape mode adjustments */
+        @media (orientation: landscape) and (max-height: 500px) {
+            .controls {
+                bottom: 10px;
+                padding: 8px 15px;
+            }
+
+            #colorPicker {
+                width: 40px;
+                height: 40px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-container">
+            <video id="video" autoplay muted playsinline></video>
+            
+            <button id="startCamera" class="start-camera">Start Camera</button>
+            
+            <div id="errorMessage" class="error-message hidden">
+                <h3>Camera Access Error</h3>
+                <p id="errorText">Please allow camera access to use this application.</p>
+            </div>
+            
+            <div id="controls" class="controls hidden">
+                <div class="color-picker-container">
+                    <input type="color" id="colorPicker" value="#ff0000" title="Select filter color">
+                    <button id="resetFilter" class="reset-btn">Reset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class ColorFilterCamera {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.colorPicker = document.getElementById('colorPicker');
+                this.resetBtn = document.getElementById('resetFilter');
+                this.startBtn = document.getElementById('startCamera');
+                this.controls = document.getElementById('controls');
+                this.errorMessage = document.getElementById('errorMessage');
+                
+                this.stream = null;
+                this.currentFilter = '';
+                this.errorText = document.getElementById('errorText');
+                
+                this.init();
+            }
+
+            init() {
+                this.startBtn.addEventListener('click', () => this.startCamera());
+                this.colorPicker.addEventListener('input', (e) => this.applyColorFilter(e.target.value));
+                this.resetBtn.addEventListener('click', () => this.resetFilter());
+                
+                // Handle orientation changes
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => this.handleOrientationChange(), 100);
+                });
+            }
+
+            async startCamera() {
+                try {
+                    // Check if getUserMedia is available
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('Camera API not available. This page must be served over HTTPS or localhost.');
+                    }
+
+                    // Check if we're in a secure context
+                    if (!window.isSecureContext) {
+                        throw new Error('Not a secure context. URL protocol: ' + window.location.protocol);
+                    }
+
+                    let stream = null;
+                    
+                    // Try back camera first
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: 'environment' },
+                            audio: false
+                        });
+                    } catch (e) {
+                        console.log('Back camera failed, trying front camera:', e);
+                        // Fallback to front camera
+                        try {
+                            stream = await navigator.mediaDevices.getUserMedia({
+                                video: { facingMode: 'user' },
+                                audio: false
+                            });
+                        } catch (e2) {
+                            console.log('Front camera failed, trying any camera:', e2);
+                            // Fallback to any camera
+                            stream = await navigator.mediaDevices.getUserMedia({
+                                video: true,
+                                audio: false
+                            });
+                        }
+                    }
+
+                    this.stream = stream;
+                    this.video.srcObject = this.stream;
+                    
+                    // Hide start button and show controls
+                    this.startBtn.classList.add('hidden');
+                    this.controls.classList.remove('hidden');
+                    this.errorMessage.classList.add('hidden');
+                    
+                    // Apply default red filter
+                    this.applyColorFilter(this.colorPicker.value);
+                    
+                } catch (error) {
+                    console.error('Error accessing camera:', error);
+                    this.showError(error.name + ': ' + error.message);
+                }
+            }
+
+            applyColorFilter(color) {
+                // Convert hex color to RGB
+                const rgb = this.hexToRgb(color);
+                if (!rgb) return;
+
+                // Create a color filter effect
+                // This creates an overlay effect that simulates looking through colored glass
+                const filter = `
+                    sepia(100%) 
+                    saturate(200%) 
+                    hue-rotate(${this.getHueRotation(color)}deg) 
+                    brightness(1.2) 
+                    contrast(1.1)
+                `;
+
+                this.video.style.filter = filter;
+                this.currentFilter = filter;
+            }
+
+            hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : null;
+            }
+
+            getHueRotation(hexColor) {
+                const rgb = this.hexToRgb(hexColor);
+                if (!rgb) return 0;
+
+                // Convert RGB to HSL to get hue
+                const r = rgb.r / 255;
+                const g = rgb.g / 255;
+                const b = rgb.b / 255;
+
+                const max = Math.max(r, g, b);
+                const min = Math.min(r, g, b);
+                let h = 0;
+
+                if (max !== min) {
+                    const d = max - min;
+                    switch (max) {
+                        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                        case g: h = (b - r) / d + 2; break;
+                        case b: h = (r - g) / d + 4; break;
+                    }
+                    h /= 6;
+                }
+
+                // Convert to degrees and adjust for filter
+                return (h * 360) - 60; // Offset to align with sepia base
+            }
+
+            resetFilter() {
+                this.video.style.filter = 'none';
+                this.currentFilter = '';
+                this.colorPicker.value = '#ff0000';
+            }
+
+            showError(message) {
+                this.startBtn.classList.add('hidden');
+                this.errorText.textContent = message || 'Please allow camera access to use this application.';
+                this.errorMessage.classList.remove('hidden');
+            }
+
+            handleOrientationChange() {
+                // Force video to recalculate dimensions after orientation change
+                if (this.video.srcObject) {
+                    const currentSrc = this.video.srcObject;
+                    this.video.srcObject = null;
+                    setTimeout(() => {
+                        this.video.srcObject = currentSrc;
+                    }, 100);
+                }
+            }
+
+            stopCamera() {
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+            }
+        }
+
+        // Initialize the application when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = new ColorFilterCamera();
+            
+            // Clean up when page is unloaded
+            window.addEventListener('beforeunload', () => {
+                app.stopCamera();
+            });
+        });
+
+        // Prevent zoom on double tap (iOS Safari)
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function (event) {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+    </script>
+</body>
+</html>
