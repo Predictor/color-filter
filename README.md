@@ -40,6 +40,7 @@ The camera API (`getUserMedia`) only works in secure contexts:
 | [GitHub Pages](https://pages.github.com) | 5 minutes | `https://username.github.io/repo` |
 | [Vercel](https://vercel.com) | 2 minutes | `https://project.vercel.app` |
 | [Cloudflare Pages](https://pages.cloudflare.com) | 3 minutes | `https://project.pages.dev` |
+| [Azure Static Web Apps](https://azure.microsoft.com/products/app-service/static) | 5 minutes | `https://project.azurestaticapps.net` |
 
 ## How It Works
 
