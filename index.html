@@ -38,6 +38,10 @@
         }
 
         #video {
+            display: none;
+        }
+
+        #canvas {
             width: 100%;
             height: 100%;
             object-fit: cover;
@@ -170,6 +174,7 @@
     <div class="container">
         <div class="video-container">
             <video id="video" autoplay muted playsinline></video>
+            <canvas id="canvas"></canvas>
             
             <button id="startCamera" class="start-camera">Start Camera</button>
             
@@ -191,28 +196,34 @@
         class ColorFilterCamera {
             constructor() {
                 this.video = document.getElementById('video');
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
                 this.colorPicker = document.getElementById('colorPicker');
                 this.resetBtn = document.getElementById('resetFilter');
                 this.startBtn = document.getElementById('startCamera');
                 this.controls = document.getElementById('controls');
                 this.errorMessage = document.getElementById('errorMessage');
+                this.errorText = document.getElementById('errorText');
                 
                 this.stream = null;
-                this.currentFilter = '';
-                this.errorText = document.getElementById('errorText');
+                this.filterColor = { r: 1, g: 0, b: 0 }; // Default red filter
+                this.filterEnabled = true;
+                this.animationId = null;
                 
                 this.init();
             }
 
             init() {
                 this.startBtn.addEventListener('click', () => this.startCamera());
-                this.colorPicker.addEventListener('input', (e) => this.applyColorFilter(e.target.value));
+                this.colorPicker.addEventListener('input', (e) => this.setFilterColor(e.target.value));
                 this.resetBtn.addEventListener('click', () => this.resetFilter());
                 
                 // Handle orientation changes
                 window.addEventListener('orientationchange', () => {
                     setTimeout(() => this.handleOrientationChange(), 100);
                 });
+                
+                window.addEventListener('resize', () => this.resizeCanvas());
             }
 
             async startCamera() {
@@ -256,13 +267,20 @@
                     this.stream = stream;
                     this.video.srcObject = this.stream;
                     
+                    // Wait for video to be ready
+                    this.video.onloadedmetadata = () => {
+                        this.video.play();
+                        this.resizeCanvas();
+                        this.startProcessing();
+                    };
+                    
                     // Hide start button and show controls
                     this.startBtn.classList.add('hidden');
                     this.controls.classList.remove('hidden');
                     this.errorMessage.classList.add('hidden');
                     
-                    // Apply default red filter
-                    this.applyColorFilter(this.colorPicker.value);
+                    // Apply default filter color
+                    this.setFilterColor(this.colorPicker.value);
                     
                 } catch (error) {
                     console.error('Error accessing camera:', error);
@@ -270,23 +288,44 @@
                 }
             }
 
-            applyColorFilter(color) {
-                // Convert hex color to RGB
-                const rgb = this.hexToRgb(color);
+            resizeCanvas() {
+                const container = this.canvas.parentElement;
+                const containerWidth = container.clientWidth;
+                const containerHeight = container.clientHeight;
+                
+                const videoWidth = this.video.videoWidth || 640;
+                const videoHeight = this.video.videoHeight || 480;
+                
+                // Calculate aspect ratios
+                const containerRatio = containerWidth / containerHeight;
+                const videoRatio = videoWidth / videoHeight;
+                
+                // Cover mode - fill container while maintaining aspect ratio
+                let drawWidth, drawHeight;
+                if (containerRatio > videoRatio) {
+                    drawWidth = containerWidth;
+                    drawHeight = containerWidth / videoRatio;
+                } else {
+                    drawHeight = containerHeight;
+                    drawWidth = containerHeight * videoRatio;
+                }
+                
+                this.canvas.width = drawWidth;
+                this.canvas.height = drawHeight;
+                this.canvas.style.width = drawWidth + 'px';
+                this.canvas.style.height = drawHeight + 'px';
+            }
+
+            setFilterColor(hexColor) {
+                const rgb = this.hexToRgb(hexColor);
                 if (!rgb) return;
-
-                // Create a color filter effect
-                // This creates an overlay effect that simulates looking through colored glass
-                const filter = `
-                    sepia(100%) 
-                    saturate(200%) 
-                    hue-rotate(${this.getHueRotation(color)}deg) 
-                    brightness(1.2) 
-                    contrast(1.1)
-                `;
-
-                this.video.style.filter = filter;
-                this.currentFilter = filter;
+                
+                // Normalize to 0-1 range
+                this.filterColor = {
+                    r: rgb.r / 255,
+                    g: rgb.g / 255,
+                    b: rgb.b / 255
+                };
             }
 
             hexToRgb(hex) {
@@ -298,37 +337,58 @@
                 } : null;
             }
 
-            getHueRotation(hexColor) {
-                const rgb = this.hexToRgb(hexColor);
-                if (!rgb) return 0;
-
-                // Convert RGB to HSL to get hue
-                const r = rgb.r / 255;
-                const g = rgb.g / 255;
-                const b = rgb.b / 255;
-
-                const max = Math.max(r, g, b);
-                const min = Math.min(r, g, b);
-                let h = 0;
-
-                if (max !== min) {
-                    const d = max - min;
-                    switch (max) {
-                        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                        case g: h = (b - r) / d + 2; break;
-                        case b: h = (r - g) / d + 4; break;
+            startProcessing() {
+                const processFrame = () => {
+                    if (!this.stream) return;
+                    
+                    // Draw video frame to canvas
+                    this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+                    
+                    if (this.filterEnabled) {
+                        // Get image data
+                        const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                        const data = imageData.data;
+                        
+                        // Apply color filter
+                        // A real color filter works by letting through only the light that matches the filter color
+                        // Red filter: lets red light through, blocks green and blue
+                        // This makes red objects appear bright and cyan objects appear dark
+                        
+                        const fr = this.filterColor.r;
+                        const fg = this.filterColor.g;
+                        const fb = this.filterColor.b;
+                        
+                        for (let i = 0; i < data.length; i += 4) {
+                            const r = data[i];
+                            const g = data[i + 1];
+                            const b = data[i + 2];
+                            
+                            // Calculate how much light passes through the filter
+                            // Each channel is multiplied by the corresponding filter channel
+                            // Then we sum them up to get the perceived brightness through the filter
+                            const brightness = (r * fr + g * fg + b * fb) / 255;
+                            
+                            // The result is a monochrome image tinted with the filter color
+                            // This simulates looking through colored transparent film
+                            data[i] = brightness * fr * 255;     // R
+                            data[i + 1] = brightness * fg * 255; // G
+                            data[i + 2] = brightness * fb * 255; // B
+                            // Alpha stays unchanged
+                        }
+                        
+                        this.ctx.putImageData(imageData, 0, 0);
                     }
-                    h /= 6;
-                }
-
-                // Convert to degrees and adjust for filter
-                return (h * 360) - 60; // Offset to align with sepia base
+                    
+                    this.animationId = requestAnimationFrame(processFrame);
+                };
+                
+                processFrame();
             }
 
             resetFilter() {
-                this.video.style.filter = 'none';
-                this.currentFilter = '';
+                this.filterEnabled = true;
                 this.colorPicker.value = '#ff0000';
+                this.setFilterColor('#ff0000');
             }
 
             showError(message) {
@@ -338,17 +398,14 @@
             }
 
             handleOrientationChange() {
-                // Force video to recalculate dimensions after orientation change
-                if (this.video.srcObject) {
-                    const currentSrc = this.video.srcObject;
-                    this.video.srcObject = null;
-                    setTimeout(() => {
-                        this.video.srcObject = currentSrc;
-                    }, 100);
-                }
+                this.resizeCanvas();
             }
 
             stopCamera() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
                 if (this.stream) {
                     this.stream.getTracks().forEach(track => track.stop());
                     this.stream = null;
