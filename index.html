@@ -59,6 +59,7 @@
             display: flex;
             align-items: center;
             gap: 15px;
+            z-index: 10;
         }
 
         .color-picker-container {
@@ -224,6 +225,28 @@
                 });
                 
                 window.addEventListener('resize', () => this.resizeCanvas());
+                
+                // Handle page visibility changes (screen off/on, app background/foreground)
+                document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
+            }
+
+            handleVisibilityChange() {
+                if (document.visibilityState === 'visible' && this.stream) {
+                    // Check if stream is still active
+                    const videoTrack = this.stream.getVideoTracks()[0];
+                    if (!videoTrack || videoTrack.readyState === 'ended') {
+                        // Stream has ended, restart camera
+                        this.restartCamera();
+                    }
+                }
+            }
+
+            async restartCamera() {
+                // Stop existing stream
+                this.stopCamera();
+                
+                // Restart camera
+                await this.startCamera();
             }
 
             async startCamera() {
