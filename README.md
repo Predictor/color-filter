@@ -12,7 +12,10 @@ A simple web app that applies real-time color filters to your device's camera fe
 
 ## Demo
 
-![Color Filter Camera Demo](https://via.placeholder.com/400x300?text=Demo+Screenshot)
+![Source Picture](./images/photo_2026-01-07_14-50-32.jpg)
+![Blue Filter](./images/photo_2026-01-07_14-49-40.jpg)
+![Green Filter](./images/photo_2026-01-07_14-49-40%20(2).jpg)
+![Red Filter](./images/photo_2026-01-07_14-49-40%20(3).jpg)
 
 ## Usage
 
